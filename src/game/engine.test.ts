@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { act, createGame, pot, raiseAllowed, startRound, type Game } from './engine'
+import { act, createGame, pot, raiseAllowed, roundProfit, startRound, type Game } from './engine'
 
 const settings = { names: ['甲', '乙', '丙'], chips: 1000, rounds: 10, smallBlind: 10 }
 const total = (g: Game) => g.players.reduce((n, p) => n + p.chips, 0) + (g.street === 'showdown' ? 0 : pot(g))
@@ -75,6 +75,7 @@ describe('settlement', () => {
     expect(g.players[0]!.chips).toBe(1030)
     expect(total(g)).toBe(3000)
     expect(g.awards.some(a => a.description.startsWith('退回'))).toBe(true)
+    expect(g.players.map(p => roundProfit(g, p))).toEqual([30, -10, -20])
   })
   it('builds main and side pots and returns unmatched chips', () => {
     const g = createGame({ ...settings, rounds: 1 })
@@ -92,6 +93,7 @@ describe('settlement', () => {
     expect(g.players.map(p => p.chips)).toEqual([300, 200, 100])
     expect(total(g)).toBe(600)
     expect(g.finished).toBe(true)
+    expect(g.players.map(p => roundProfit(g, p))).toEqual([200, 0, -200])
   })
   it('splits tied pots and gives odd chips clockwise from dealer', () => {
     const g = createGame({ ...settings, smallBlind: 1, rounds: 1 })
@@ -108,6 +110,19 @@ describe('settlement', () => {
     expect(g.players[1]!.chips).toBe(999)
     expect(g.players[2]!.chips).toBe(1001)
     expect(total(g)).toBe(3000)
+    expect(g.players.map(p => roundProfit(g, p))).toEqual([0, -1, 1])
+  })
+  it('reports the latest hand separately from cumulative profit', () => {
+    const g = createGame({ ...settings, names: ['甲', '乙'] })
+    act(g, 'fold')
+    expect(g.players.map(p => roundProfit(g, p))).toEqual([-10, 10])
+    startRound(g)
+    act(g, 'raise', 100)
+    act(g, 'fold')
+    expect(g.round).toBe(2)
+    expect(g.players.map(p => roundProfit(g, p))).toEqual([-20, 20])
+    expect(g.players.map(p => p.chips - settings.chips)).toEqual([-30, 30])
+    expect(g.players.reduce((sum, p) => sum + roundProfit(g, p), 0)).toBe(0)
   })
   it('runs the board when the big blind is short and nobody can contest more chips', () => {
     const g = createGame({ ...settings, names: ['甲', '乙'] })

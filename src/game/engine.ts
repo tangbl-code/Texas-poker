@@ -38,6 +38,8 @@ export const streetNames: Record<Street, string> = {
 const live = (p: Player) => !p.folded
 const canAct = (p: Player) => live(p) && p.chips > 0
 export const pot = (g: Game) => g.players.reduce((sum, p) => sum + p.invested, 0)
+export const roundProfit = (g: Pick<Game, 'awards'>, player: Pick<Player, 'id' | 'invested'>) =>
+  g.awards.reduce((sum, award) => sum + (award.playerId === player.id ? award.amount : 0), 0) - player.invested
 export function nextSeat(g: Game, from: number, predicate: (p: Player) => boolean): number {
   for (let i = 1; i <= g.players.length; i++) {
     const seat = (from + i) % g.players.length

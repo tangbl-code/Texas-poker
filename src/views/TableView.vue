@@ -6,7 +6,7 @@ import PlayingCard from '../components/PlayingCard.vue'
 import PokerActions from '../components/PokerActions.vue'
 import PokerChips from '../components/PokerChips.vue'
 import { useRoomStore } from '../stores/room'
-import { pot, streetNames, type Game } from '../game/engine'
+import { pot, roundProfit, streetNames, type Game } from '../game/engine'
 
 const ConfirmDialog = defineAsyncComponent(() => import('../components/ConfirmDialog.vue'))
 const room = useRoomStore()
@@ -29,11 +29,13 @@ const dealCards = computed(() => {
 let feedbackTimer: ReturnType<typeof setTimeout> | undefined
 const totalPot = computed(() => game.value ? pot(game.value as Game) : 0)
 const myTurn = computed(() => game.value?.turn === room.view?.me && game.value?.street !== 'showdown' && room.connected)
-const ranking = computed(() => [...(game.value?.players ?? [])].sort((a, b) => b.chips - a.chips))
+const ranking = computed(() => (game.value?.players ?? []).map(p => ({ ...p, roundProfit: roundProfit(game.value!, p), totalProfit: p.chips - game.value!.settings.chips })).sort((a, b) => b.chips - a.chips))
 const winners = computed(() => game.value?.players.filter(p => game.value!.awards.some(a => a.playerId === p.id && !a.description.startsWith('退回'))) ?? [])
 const moveTone = (label: string) => label === '全下' ? 'all-in' : label === '过牌' ? 'check' : label === '弃牌' ? 'fold' : label === '跟注' ? 'call' : 'raise'
 const moveIcon = computed(() => room.view?.lastMove?.label === '全下' ? Flame : room.view?.lastMove?.label === '过牌' ? CheckCheck : room.view?.lastMove?.label === '弃牌' ? Flag : Coins)
 const fmt = (value: number) => value.toLocaleString('en-US')
+const signed = (value: number) => `${value > 0 ? '+' : ''}${fmt(value)}`
+const profitTone = (value: number) => value > 0 ? 'profit' : value < 0 ? 'loss' : 'even'
 function seatPosition(index: number, total: number) {
   const angle = Math.PI / 2 + index / total * 2 * Math.PI
   return { '--seat-x': `${50 + 44 * Math.cos(angle)}%`, '--seat-y': `${50 + 43 * Math.sin(angle)}%` }
@@ -84,7 +86,7 @@ function exit() { confirmLeave.value = false; room.leave() }
         <div class="dock-inner"><div class="own-hand"><div class="own-cards"><PlayingCard v-for="(card, i) in player?.cards ?? []" :key="i" :card="card" :hidden="!reveal" /></div><div class="hand-details"><span class="eyebrow">YOUR HAND</span><h2>我的底牌</h2><button class="hand-toggle" @click="reveal = !reveal"><component :is="reveal ? EyeOff : Eye" :size="14" />{{ reveal ? '收起底牌' : '查看底牌' }}</button></div><div class="my-stack"><PokerChips :amount="player?.chips ?? 0" small /><div><span>剩余筹码</span><b>{{ fmt(player?.chips ?? 0) }}</b></div></div></div><PokerActions /></div>
       </section>
 
-      <section v-else class="settlement"><div class="settlement-heading"><div><span class="eyebrow">{{ game.finished ? 'SESSION COMPLETE' : 'NICE HAND' }}</span><h2><Trophy :size="22" />{{ game.finished ? '今晚的筹码榜' : '本轮结算' }}</h2></div><button v-if="room.view.host && !game.finished" class="button primary" :disabled="!room.connected" @click="room.next()">开始第 {{ game.round + 1 }} 轮<ArrowRight :size="18" /></button><button v-else-if="game.finished" class="button primary" @click="confirmLeave = true">{{ isSolo ? '结束单机对局' : '结束房间' }}<ArrowRight :size="18" /></button><span v-else class="waiting-next">等待房主开始下一轮</span></div><div class="standings"><div v-for="(p, i) in ranking" :key="p.id" class="standing-row"><span class="rank-number"><Trophy v-if="i === 0" :size="16" /><template v-else>{{ i + 1 }}</template></span><b>{{ p.name }}<small v-if="p.id === room.view.me"> (你)</small></b><div class="ranking-hand"><PlayingCard v-for="card in p.folded ? [] : p.cards" :key="card" :card="card" small /></div><strong>{{ fmt(p.chips) }}</strong><span :class="p.chips >= game.settings.chips ? 'profit' : 'loss'">{{ p.chips >= game.settings.chips ? '+' : '' }}{{ fmt(p.chips - game.settings.chips) }}</span></div></div><p v-if="game.finished" class="finish-note"><CheckCheck :size="15" />本局已结束，临时缓存已清除</p></section>
+      <section v-else class="settlement"><div class="settlement-heading"><div><span class="eyebrow">{{ game.finished ? 'SESSION COMPLETE' : 'NICE HAND' }}</span><h2><Trophy :size="22" />{{ game.finished ? '今晚的筹码榜' : '本轮结算' }}</h2></div><button v-if="room.view.host && !game.finished" class="button primary" :disabled="!room.connected" @click="room.next()">开始第 {{ game.round + 1 }} 轮<ArrowRight :size="18" /></button><button v-else-if="game.finished" class="button primary" @click="confirmLeave = true">{{ isSolo ? '结束单机对局' : '结束房间' }}<ArrowRight :size="18" /></button><span v-else class="waiting-next">等待房主开始下一轮</span></div><div class="standings"><div v-for="(p, i) in ranking" :key="p.id" class="standing-row"><span class="rank-number"><Trophy v-if="i === 0" :size="16" /><template v-else>{{ i + 1 }}</template></span><b>{{ p.name }}<small v-if="p.id === room.view.me"> (你)</small></b><div class="ranking-hand"><PlayingCard v-for="card in p.folded ? [] : p.cards" :key="card" :card="card" small /></div><strong class="remaining-chips"><small>剩余筹码</small>{{ fmt(p.chips) }}</strong><div class="result-breakdown"><span class="round-result"><small>本轮输赢</small><b :class="profitTone(p.roundProfit)">{{ signed(p.roundProfit) }}</b></span><span class="total-result"><small>累计输赢</small><b :class="profitTone(p.totalProfit)">{{ signed(p.totalProfit) }}</b></span></div></div></div><p v-if="game.finished" class="finish-note"><CheckCheck :size="15" />本局已结束，临时缓存已清除</p></section>
     </main>
     <ConfirmDialog v-if="confirmLeave" :host="room.view.host" :solo="isSolo" @close="confirmLeave = false" @confirm="exit" />
   </div>
@@ -171,4 +173,13 @@ function exit() { confirmLeave.value = false; room.leave() }
 }
 @media(max-width:600px) and (max-height:660px) { .community-cards { margin-block: 9px; }.community-cards :deep(.playing-card) { height: 52px; }.street-label { font-size: 8px; }.pot-amount { font-size: 24px; }.player-seat { height: 80px; }.avatar { width: 27px; height: 27px; }.seat-details { height: 35px; }.move-feedback { top: 25%; } }
 @media(prefers-reduced-motion:reduce) { .flying-card,.pot-amount { animation: none; }.deal-layer { display: none; }.dealing .seat-cards { visibility: visible; }.move-enter-active,.move-leave-active { transition: none; } }
+.standing-row { grid-template-columns: 20px minmax(0, 1fr) auto minmax(60px, auto); row-gap: 9px; }
+.remaining-chips small { display: block; margin-bottom: 3px; font: 400 8px var(--font); color: #9aaa85; }
+.result-breakdown { grid-column: 2 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.result-breakdown>span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.result-breakdown small { color: #9aaa85; font-size: 10px; }
+.result-breakdown b { font: 500 15px var(--numbers); }
+.result-breakdown .round-result small { color: #c6d2b8; }
+.even { color: #adb9a9; }
+@media(max-width:600px) { .standing-row { grid-template-columns: 16px minmax(0, 1fr) auto minmax(50px, auto); }.result-breakdown { gap: 16px; }.result-breakdown small { font-size: 9px; }.result-breakdown b { font-size: 14px; } }
 </style>
