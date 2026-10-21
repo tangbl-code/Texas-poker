@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ArrowUpRight, CheckCheck, ChevronDown, Coins, Flag, Flame, LoaderCircle, Minus, Plus } from 'lucide-vue-next'
+import { ArrowUpRight, CheckCheck, Coins, Flag, Flame, LoaderCircle, Minus, Plus } from 'lucide-vue-next'
 import { useRoomStore } from '../stores/room'
 import { pot, raiseAllowed, type Game } from '../game/engine'
 
 const room = useRoomStore()
-const raiseOpen = ref(false)
 const raiseTo = ref(0)
 const game = computed(() => room.view!.game!)
 const player = computed(() => room.me!)
@@ -14,12 +13,12 @@ const toCall = computed(() => Math.min(player.value.chips, Math.max(0, game.valu
 const maximum = computed(() => player.value.bet + player.value.chips)
 const minimum = computed(() => Math.min(maximum.value, game.value.currentBet + game.value.minRaise))
 const canRaise = computed(() => myTurn.value && raiseAllowed(game.value as Game) && maximum.value > game.value.currentBet)
+const validRaise = computed(() => canRaise.value && Number.isInteger(raiseTo.value) && raiseTo.value >= minimum.value && raiseTo.value <= maximum.value)
 const canAllIn = computed(() => myTurn.value && (canRaise.value || maximum.value <= game.value.currentBet))
 const callIsAllIn = computed(() => toCall.value > 0 && toCall.value === player.value.chips)
 const fmt = (value: number) => value.toLocaleString('en-US')
 watch(() => [game.value.turn, game.value.round, game.value.street, game.value.currentBet], () => {
   raiseTo.value = minimum.value
-  raiseOpen.value = false
 }, { immediate: true })
 function allIn() {
   if (!canAllIn.value) return
@@ -34,14 +33,14 @@ function preset(fraction: number) {
   <section class="poker-actions" aria-label="牌局操作">
     <template v-if="myTurn">
       <div class="action-heading"><span class="your-move"><span></span>轮到你行动</span><span class="call-cost">{{ toCall ? '需要跟注' : '可免费过牌' }}<b v-if="toCall">{{ fmt(toCall) }}</b></span></div>
-      <div v-if="raiseOpen && canRaise" class="raise-editor">
+      <div v-if="canRaise" class="raise-editor">
         <div class="raise-header"><label for="raise-amount">{{ game.currentBet ? '加注至' : '下注至' }}<small>本街总额</small></label><div class="amount-stepper"><button title="减少加注金额" :disabled="raiseTo <= minimum" @click="raiseTo = Math.max(minimum, raiseTo - game.minRaise)"><Minus :size="15" /></button><input id="raise-amount" v-model.number="raiseTo" type="number" :min="minimum" :max="maximum" step="1" /><button title="增加加注金额" :disabled="raiseTo >= maximum" @click="raiseTo = Math.min(maximum, raiseTo + game.minRaise)"><Plus :size="15" /></button></div></div>
-        <input v-model.number="raiseTo" type="range" aria-label="加注金额滑块" :min="minimum" :max="maximum" step="1" /><div class="raise-bottom"><div class="bet-presets"><button @click="raiseTo = minimum">最小加注</button><button @click="preset(.5)">½ 底池</button><button @click="preset(1)">底池</button></div><button class="confirm-raise" :class="{ 'is-all-in': raiseTo === maximum }" :disabled="!Number.isInteger(raiseTo) || raiseTo < minimum || raiseTo > maximum" @click="room.action('raise', raiseTo)"><ArrowUpRight :size="17" />{{ raiseTo === maximum ? '确认全下' : '确认下注' }} {{ fmt(raiseTo) }}</button></div>
+        <div class="raise-shortcuts"><input v-model.number="raiseTo" type="range" aria-label="加注金额滑块" :min="minimum" :max="maximum" step="1" /><div class="bet-presets"><button @click="raiseTo = minimum">最小</button><button @click="preset(.5)">½ 底池</button><button @click="preset(1)">底池</button></div></div>
       </div>
       <div class="action-buttons">
         <button class="action-button fold-button" @click="room.action('fold')"><Flag :size="19" /><span>弃牌<small>FOLD</small></span></button>
         <button class="action-button call-button" :class="{ 'check-button': !toCall, 'is-all-in': callIsAllIn }" @click="room.action('call')"><component :is="callIsAllIn ? Flame : toCall ? Coins : CheckCheck" :size="23" /><span>{{ callIsAllIn ? '跟注全下' : toCall ? '跟注' : '过牌' }}<small>{{ callIsAllIn ? 'ALL IN' : toCall ? 'CALL' : 'CHECK' }}</small></span><b v-if="toCall">{{ fmt(toCall) }}</b></button>
-        <button class="action-button raise-button" :class="{ expanded: raiseOpen }" :disabled="!canRaise" :aria-expanded="raiseOpen" @click="raiseOpen = !raiseOpen"><component :is="raiseOpen ? ChevronDown : ArrowUpRight" :size="23" /><span>{{ game.currentBet ? '加注' : '下注' }}<small>{{ game.currentBet ? 'RAISE' : 'BET' }}</small></span></button>
+        <button class="action-button raise-button" :class="{ 'is-all-in': canRaise && raiseTo === maximum }" :disabled="!validRaise" @click="room.action('raise', raiseTo)"><ArrowUpRight :size="23" /><span>{{ canRaise && raiseTo === maximum ? '全下' : game.currentBet ? '加注至' : '下注' }}<small>{{ game.currentBet ? 'RAISE' : 'BET' }}</small></span><b v-if="validRaise">{{ fmt(raiseTo) }}</b></button>
         <button class="action-button all-in-button" :disabled="!canAllIn" :title="!canAllIn ? '本轮尚未重新开放加注' : `全下 ${fmt(player.chips)}`" @click="allIn"><Flame :size="23" /><span>全下<small>ALL IN</small></span><b>{{ fmt(player.chips) }}</b></button>
       </div>
     </template>
@@ -54,4 +53,15 @@ function preset(fraction: number) {
 @media(max-width:1050px) { .action-buttons { gap: 7px; }.action-button { gap: 7px; padding: 10px; }.action-button>span { font-size: 14px; }.action-button>b { font-size: 15px; }.action-button>svg { width: 18px; } }
 @media(max-width:600px) { .action-buttons { grid-template-columns: .7fr 1.25fr 1fr 1.2fr; gap: 6px; }.action-button { min-height: 65px; flex-direction: column; gap: 4px; padding: 7px 3px; }.action-button>span { font-size: 13px; text-align: center; }.action-button small { display: none; }.action-button>svg { width: 17px; height: 17px; }.action-button>b { margin-left: 0; font-size: 13px; }.call-button,.all-in-button { gap: 2px; }.action-heading { margin-bottom: 10px; }.action-button:hover:not(:disabled) { transform: none; }.raise-editor { padding: 12px; }.raise-bottom { gap: 8px; }.bet-presets button { font-size: 9px; padding: 7px; }.confirm-raise { padding: 9px; font-size: 10px; }.waiting-action { min-height: 65px; }.waiting-action b { font-size: 13px; } }
 @media(prefers-reduced-motion:reduce) { .action-button { transition: none; }.raise-editor { animation: none; } }
+.raise-editor { padding: 10px 12px; margin-bottom: 10px; animation: none; }
+.raise-header { gap: 10px; }
+.raise-header label { display: flex; align-items: center; gap: 8px; }
+.raise-header small { margin: 0; }
+.amount-stepper { height: 36px; width: 160px; }
+.raise-shortcuts { display: flex; align-items: center; gap: 12px; margin-top: 5px; }
+.raise-shortcuts>input { flex: 1; min-width: 0; height: 24px; padding: 0; border: 0; box-shadow: none; background: none; accent-color: #547fc0; }
+.bet-presets { flex-shrink: 0; }
+.bet-presets button { min-height: 30px; padding: 4px 9px; }
+@media(max-width:600px) { .raise-editor { padding: 7px 9px; margin-bottom: 8px; }.raise-header label { font-size: 11px; gap: 5px; }.raise-header small { font-size: 8px; }.amount-stepper { height: 32px; width: 148px; }.amount-stepper input { font-size: 16px; }.raise-shortcuts { gap: 9px; margin-top: 3px; }.bet-presets button { padding: 4px 7px; }.action-button.raise-button { gap: 2px; }.raise-button>b { margin-left: 0; } }
+@media(max-width:600px) and (max-height:620px) { .action-heading { margin-bottom: 6px; }.action-button { min-height: 60px; padding-block: 4px; line-height: 1.2; }.action-button>span { line-height: 1.2; } }
 </style>
