@@ -6,6 +6,10 @@ import './styles.css'
 
 const router = createRouter({
   history: createWebHashHistory(),
-  routes: [{ path: '/:pathMatch(.*)*', component: () => import('./views/TableView.vue') }],
+  routes: [
+    { path: '/', component: () => import('./views/LobbyView.vue') },
+    { path: '/table', component: () => import('./views/TableView.vue') },
+    { path: '/:pathMatch(.*)*', redirect: '/' },
+  ],
 })
 createApp(App).use(createPinia()).use(router).mount('#app')

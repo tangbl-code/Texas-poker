@@ -22,6 +22,20 @@ beforeEach(() => {
 afterEach(() => { store.leave(); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('solo rooms', () => {
+  it('publishes the action amount before settlement and labels all-in correctly', () => {
+    store.solo('玩家', options, 2)
+    store.action('raise', 1000)
+    expect(store.view!.lastMove).toMatchObject({ playerId: 0, label: '全下', amount: 990 })
+    expect(store.me!.chips).toBe(0)
+    expect(store.view!.lastMove!.sequence).toBe(store.view!.revision)
+  })
+  it('keeps fold feedback at zero even when uncalled chips are returned', () => {
+    store.solo('玩家', options, 2)
+    store.action('fold')
+    expect(store.view!.lastMove).toMatchObject({ playerId: 0, label: '弃牌', amount: 0 })
+    store.next()
+    expect(store.view!.lastMove).toBeNull()
+  })
   it('starts immediately with bots and hides their cards, without a network connection', async () => {
     store.solo('', options, 4)
     expect(store.view?.mode).toBe('solo')

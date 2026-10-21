@@ -6,6 +6,7 @@ import { chooseBotAction } from '../game/bot'
 
 interface Seat { token: string; name: string; online: boolean }
 export interface RoomView {
+  lastMove?: { playerId: number; label: string; amount: number; sequence: number } | null
   mode: 'solo' | 'online'
   code: string
   host: boolean
@@ -42,6 +43,7 @@ export const useRoomStore = defineStore('room', () => {
   let settings: Omit<Settings, 'names'> = { chips: 1000, rounds: 10, smallBlind: 10 }
   let capacity = 6
   let revision = 0
+  let lastMove: RoomView['lastMove'] = null
   let timeout: ReturnType<typeof setTimeout> | undefined
   let botTimeout: ReturnType<typeof setTimeout> | undefined
   const me = computed(() => view.value?.game?.players[view.value.me] ?? null)
@@ -68,6 +70,7 @@ export const useRoomStore = defineStore('room', () => {
       })
     }
     return {
+      lastMove,
       mode: credentials!.role === 'solo' ? 'solo' : 'online',
       code: credentials!.code, host: index === 0, me: index, revision,
       seats: seats.map((s, i) => ({ name: s.name, online: s.online, bot: credentials!.role === 'solo' && i > 0 })),
@@ -92,7 +95,7 @@ export const useRoomStore = defineStore('room', () => {
       if (credentials?.role !== 'solo' || !game || revision !== expectedRevision) return
       try {
         const decision = chooseBotAction(game)
-        act(game, decision.kind, decision.amount)
+        takeAction(decision.kind, decision.amount)
         broadcast()
       } catch (err) { fail(err instanceof Error ? err.message : '机器人行动失败') }
     }, 600 + Math.floor(Math.random() * 450))
@@ -101,6 +104,20 @@ export const useRoomStore = defineStore('room', () => {
     error.value = message
     busy.value = false
     clearTimeout(timeout)
+  }
+  function takeAction(kind: 'fold' | 'call' | 'raise', amount = 0) {
+    if (!game) return
+    const actor = game.players[game.turn]!
+    const before = actor.chips
+    const owed = Math.max(0, game.currentBet - actor.bet)
+    const currentBet = game.currentBet
+    const paid = kind === 'fold' ? 0 : Math.min(before, kind === 'raise' ? amount - actor.bet : owed)
+    act(game, kind, amount)
+    lastMove = {
+      playerId: actor.id, sequence: revision + 1,
+      label: kind === 'fold' ? '弃牌' : kind === 'call' && paid === 0 ? '过牌' : paid === before ? '全下' : kind === 'raise' ? currentBet === 0 ? '下注' : '加注' : '跟注',
+      amount: paid,
+    }
   }
   function dispose() {
     clearTimeout(timeout)
@@ -123,6 +140,7 @@ export const useRoomStore = defineStore('room', () => {
       capacity = count
       seats = names.map(name => ({ token: crypto.randomUUID(), name, online: true }))
       game = initialGame
+      lastMove = null
       busy.value = false
       error.value = ''
       notice.value = ''
@@ -176,6 +194,7 @@ export const useRoomStore = defineStore('room', () => {
       capacity = count
       seats = [{ token: credentials.token, name: credentials.name, online: true }]
       game = null
+      lastMove = null
       const instance = await initialize(prefix + credentials.code)
       acceptConnections(instance)
       busy.value = false
@@ -211,7 +230,7 @@ export const useRoomStore = defineStore('room', () => {
           } else if (data.type === 'action' && authenticatedToken && game) {
             const index = seats.findIndex(s => s.token === authenticatedToken)
             if (index !== game.turn || data.revision !== revision || !['fold', 'call', 'raise'].includes(data.action as string)) return
-            act(game, data.action as 'fold' | 'call' | 'raise', Number(data.amount))
+            takeAction(data.action as 'fold' | 'call' | 'raise', Number(data.amount))
             broadcast()
           }
         } catch (err) { conn.send({ type: 'error', message: err instanceof Error ? err.message : '操作失败' }) }
@@ -273,6 +292,7 @@ export const useRoomStore = defineStore('room', () => {
       capacity = data.capacity!
       seats = data.seats!.map((s, i) => ({ ...s, online: data.role === 'solo' || i === 0 }))
       game = data.game ?? null
+      lastMove = null
       if (data.role === 'solo') {
         dispose()
         connected.value = true
@@ -293,13 +313,14 @@ export const useRoomStore = defineStore('room', () => {
     if (credentials?.role !== 'host' || game) return
     if (seats.length < 2 || seats.some(s => !s.online)) { fail('至少需要两名玩家，且所有玩家均在线'); return }
     game = createGame({ ...settings, names: seats.map(s => s.name) })
+    lastMove = null
     broadcast()
   }
   function action(kind: 'fold' | 'call' | 'raise', amount = 0) {
     error.value = ''
     if (!view.value || !connected.value) return
     if ((credentials?.role === 'host' || credentials?.role === 'solo') && game && game.turn === 0) {
-      try { act(game, kind, amount); broadcast() } catch (err) { fail((err as Error).message) }
+      try { takeAction(kind, amount); broadcast() } catch (err) { fail((err as Error).message) }
     } else if (view.value.game?.turn === view.value.me) {
       hostConnection?.send({ type: 'action', action: kind, amount, revision: view.value.revision })
     }
@@ -307,6 +328,7 @@ export const useRoomStore = defineStore('room', () => {
   function next() {
     if ((credentials?.role === 'host' || credentials?.role === 'solo') && game && game.street === 'showdown' && !game.finished) {
       startRound(game)
+      lastMove = null
       broadcast()
     }
   }
@@ -335,6 +357,7 @@ export const useRoomStore = defineStore('room', () => {
     credentials = null
     seats = []
     game = null
+    lastMove = null
     view.value = null
     connected.value = false
     error.value = ''
