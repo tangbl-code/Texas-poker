@@ -1,6 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-const props = withDefaults(defineProps<{ card?: string; hidden?: boolean; small?: boolean; empty?: boolean }>(), { hidden: false, small: false, empty: false })
+import { computed, onMounted, ref, watch } from 'vue'
+const props = withDefaults(defineProps<{ card?: string; hidden?: boolean; small?: boolean; empty?: boolean; animate?: boolean; dealDelay?: number }>(), { hidden: false, small: false, empty: false, animate: false, dealDelay: 0 })
+const element = ref<HTMLElement>()
+function deal() {
+  if (!props.animate || !props.card || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  element.value?.animate([
+    { opacity: 0, transform: 'translateY(-32px) rotateY(90deg) scale(.8)' },
+    { opacity: 1, transform: 'translateY(0) rotateY(0) scale(1)' },
+  ], { duration: 420, delay: props.dealDelay, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'backwards' })
+}
+onMounted(deal)
+watch(() => props.card, deal, { flush: 'post' })
 const suits: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' }
 const rank = computed(() => props.card?.[0] === 'T' ? '10' : props.card?.[0])
 const suit = computed(() => suits[props.card?.[1] ?? 's'])
@@ -8,7 +18,7 @@ const red = computed(() => props.card?.[1] === 'h' || props.card?.[1] === 'd')
 </script>
 
 <template>
-  <div class="playing-card" :class="{ red, hidden, small, empty }" :aria-label="empty ? '待发牌' : hidden ? '底牌未公开' : `${rank}${suit}`">
+  <div ref="element" class="playing-card" :class="{ red, hidden, small, empty }" :aria-label="empty ? '待发牌' : hidden ? '底牌未公开' : `${rank}${suit}`">
     <template v-if="!hidden && !empty && card">
       <span class="corner">{{ rank }}<span>{{ suit }}</span></span>
       <span class="center-suit">{{ suit }}</span>
